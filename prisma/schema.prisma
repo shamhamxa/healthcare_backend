@@ -1,0 +1,861 @@
+// =====================================================================
+// Enterprise Clinic Management System — Patient Journey Management
+//
+// Architecture rules:
+//  - VISIT is the central business entity. Everything hangs off a Visit.
+//  - Every business table carries clinicId (multi-tenant from day one)
+//    and nullable branchId (future branch support).
+//  - Core searchable/reportable data is RELATIONAL.
+//  - Flexible medical data (vitals, symptoms, clinical notes, AI notes,
+//    SOAP notes, attachment metadata, dynamic fields) lives in JSONB.
+//  - Soft delete via deletedAt on user-facing entities.
+// =====================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// ============================== ENUMS ================================
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum BloodGroup {
+  A_POS
+  A_NEG
+  B_POS
+  B_NEG
+  AB_POS
+  AB_NEG
+  O_POS
+  O_NEG
+  UNKNOWN
+}
+
+enum AppointmentType {
+  WALK_IN
+  SCHEDULED
+  EMERGENCY
+  FOLLOW_UP
+}
+
+enum AppointmentStatus {
+  BOOKED
+  CONFIRMED
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+  NO_SHOW
+}
+
+// The patient journey state machine. A Visit moves strictly forward
+// (with CANCELLED as the only escape hatch).
+enum VisitStatus {
+  REGISTERED        // visit created at front desk, token issued
+  WAITING           // in waiting area / assistant queue
+  IN_ASSESSMENT     // assistant capturing vitals & chief complaint
+  READY_FOR_DOCTOR  // prepared, in doctor queue
+  IN_CONSULTATION   // with the doctor
+  AWAITING_TEST     // doctor sent patient for labs/tests; will resume
+  PRESCRIBED        // prescription generated, awaiting billing
+  PAYMENT_PENDING   // invoice issued, unpaid / partially paid
+  COMPLETED         // paid & closed; follow-up may be scheduled
+  CANCELLED
+}
+
+enum TokenStatus {
+  WAITING
+  CALLED
+  IN_PROGRESS
+  SKIPPED
+  RECALLED
+  COMPLETED
+  CANCELLED
+}
+
+enum QueueType {
+  RECEPTION
+  ASSISTANT
+  DOCTOR
+}
+
+enum PrescriptionStatus {
+  DRAFT
+  FINALIZED
+  SIGNED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  REFUNDED
+  VOID
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  ONLINE
+  BANK_TRANSFER
+  INSURANCE
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  COMPLETED
+  REJECTED
+}
+
+enum FollowUpStatus {
+  SCHEDULED
+  REMINDED
+  BOOKED
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+enum NotificationChannel {
+  SMS
+  WHATSAPP
+  EMAIL
+  PUSH
+  IN_APP
+}
+
+enum NotificationStatus {
+  PENDING
+  QUEUED
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum FileCategory {
+  LAB_REPORT
+  XRAY
+  RADIOLOGY
+  PRESCRIPTION
+  CLINICAL_IMAGE
+  DOCUMENT
+  OTHER
+}
+
+// ============================ TENANCY ================================
+
+model Clinic {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique // short code used in MRN / invoice numbers
+  phone     String?
+  email     String?
+  address   String?
+  city      String?
+  country   String?
+  timezone  String   @default("Asia/Karachi")
+  logoUrl   String?
+  settings  Json     @default("{}") // clinic-level dynamic settings
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  branches      Branch[]
+  users         User[]
+  roles         Role[]
+  patients      Patient[]
+  appointments  Appointment[]
+  visits        Visit[]
+  tokens        Token[]
+  medicines     Medicine[]
+  templates     MedicineTemplate[]
+  prescriptions Prescription[]
+  invoices      Invoice[]
+  payments      Payment[]
+  followUps     FollowUp[]
+  notifications Notification[]
+  attachments   Attachment[]
+  auditLogs     AuditLog[]
+  activityLogs  ActivityLog[]
+  counters      Counter[]
+  clinicSettings Setting[]
+
+  @@map("clinics")
+}
+
+model Branch {
+  id        String   @id @default(uuid())
+  clinicId  String
+  name      String
+  code      String
+  address   String?
+  phone     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clinic Clinic  @relation(fields: [clinicId], references: [id])
+  visits Visit[]
+  users  User[]
+
+  @@unique([clinicId, code])
+  @@index([clinicId])
+  @@map("branches")
+}
+
+// =========================== RBAC / USERS ============================
+
+model Permission {
+  id          String @id @default(uuid())
+  code        String @unique // e.g. "patients.create", "visits.consult"
+  module      String // e.g. "patients"
+  description String?
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model Role {
+  id        String   @id @default(uuid())
+  clinicId  String? // null => system role available to all clinics
+  name      String
+  code      String // SUPER_ADMIN, CLINIC_ADMIN, DOCTOR, RECEPTIONIST, ASSISTANT, CASHIER...
+  isSystem  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clinic          Clinic?          @relation(fields: [clinicId], references: [id])
+  rolePermissions RolePermission[]
+  users           User[]
+
+  @@unique([clinicId, code])
+  @@index([clinicId])
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id           String     @id @default(uuid())
+  clinicId     String? // null only for SUPER_ADMIN
+  branchId     String?
+  roleId       String
+  fullName     String
+  email        String     @unique
+  phone        String?
+  passwordHash String
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+
+  clinic Clinic? @relation(fields: [clinicId], references: [id])
+  branch Branch? @relation(fields: [branchId], references: [id])
+  role   Role    @relation(fields: [roleId], references: [id])
+
+  doctorProfile     DoctorProfile?
+  refreshTokens     RefreshToken[]
+  visitsAsDoctor    Visit[]        @relation("VisitDoctor")
+  appointmentsAsDoctor Appointment[] @relation("AppointmentDoctor")
+  prescriptions     Prescription[]
+  favoriteMedicines FavoriteMedicine[]
+  templates         MedicineTemplate[]
+  activityLogs      ActivityLog[]
+  auditLogs         AuditLog[]
+  attachmentsUploaded Attachment[]
+  paymentsReceived  Payment[]      @relation("PaymentReceivedBy")
+  followUpsAsDoctor FollowUp[]     @relation("FollowUpDoctor")
+
+  @@index([clinicId])
+  @@index([clinicId, roleId])
+  @@map("users")
+}
+
+model DoctorProfile {
+  id              String  @id @default(uuid())
+  userId          String  @unique
+  specialization  String?
+  qualifications  String?
+  registrationNo  String? // medical council registration
+  consultationFee Decimal @default(0) @db.Decimal(10, 2)
+  followUpFee     Decimal @default(0) @db.Decimal(10, 2)
+  followUpFreeDays Int    @default(0) // free follow-up window
+  signatureUrl    String?
+  avgConsultMinutes Int   @default(10) // used for estimated waiting time
+  preferences     Json    @default("{}") // doctor-specific templates & UI prefs (JSONB)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("doctor_profiles")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ============================ PATIENTS ===============================
+
+model Patient {
+  id        String     @id @default(uuid())
+  clinicId  String
+  mrn       String // Medical Record Number — permanent patient ID, e.g. CLN-000123
+  fullName  String
+  // Identity rules: normal registration requires phone + cnic (max 4
+  // patients per CNIC — children register on guardian's CNIC; duplicate
+  // phones are fine). Emergency patients start with neither (isTemporary)
+  // and get their CNIC attached later.
+  phone     String? // nullable for emergency registrations
+  altPhone  String?
+  isTemporary Boolean @default(false) // emergency record awaiting CNIC
+  email     String?
+  gender    Gender
+  dateOfBirth DateTime?
+  bloodGroup BloodGroup @default(UNKNOWN)
+  cnic      String? // national ID (optional)
+  address   String?
+  city      String?
+
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  emergencyContactRelation String?
+
+  // Flexible medical profile — JSONB
+  allergies       Json @default("[]") // [{name, severity, reaction}]
+  chronicDiseases Json @default("[]") // [{name, since, notes}]
+  familyHistory   Json @default("[]")
+  lifestyleNotes  Json @default("{}") // smoking, diet, exercise...
+  extra           Json @default("{}") // future dynamic fields
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  clinic        Clinic         @relation(fields: [clinicId], references: [id])
+  appointments  Appointment[]
+  visits        Visit[]
+  prescriptions Prescription[]
+  invoices      Invoice[]
+  followUps     FollowUp[]
+  attachments   Attachment[]
+  notifications Notification[]
+
+  @@unique([clinicId, mrn])
+  @@index([clinicId, phone])
+  @@index([clinicId, cnic])
+  @@index([clinicId, fullName])
+  @@index([clinicId, createdAt])
+  @@map("patients")
+}
+
+// ========================== APPOINTMENTS =============================
+
+model Appointment {
+  id          String            @id @default(uuid())
+  clinicId    String
+  patientId   String
+  doctorId    String
+  type        AppointmentType   @default(WALK_IN)
+  status      AppointmentStatus @default(BOOKED)
+  scheduledAt DateTime // searchable appointment date — relational
+  durationMin Int               @default(15)
+  reason      String?
+  notes       String?
+  cancelReason String?
+  rescheduledFromId String?     @unique
+  createdById String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  deletedAt   DateTime?
+
+  clinic  Clinic  @relation(fields: [clinicId], references: [id])
+  patient Patient @relation(fields: [patientId], references: [id])
+  doctor  User    @relation("AppointmentDoctor", fields: [doctorId], references: [id])
+  rescheduledFrom Appointment? @relation("Reschedule", fields: [rescheduledFromId], references: [id])
+  rescheduledTo   Appointment? @relation("Reschedule")
+  visit    Visit?
+  followUp FollowUp?
+
+  @@index([clinicId, scheduledAt])
+  @@index([clinicId, doctorId, scheduledAt])
+  @@index([clinicId, patientId])
+  @@map("appointments")
+}
+
+// ====================== VISIT — THE CENTRAL ENTITY ===================
+
+model Visit {
+  id          String      @id @default(uuid())
+  clinicId    String
+  branchId    String?
+  patientId   String
+  doctorId    String
+  appointmentId String?   @unique
+  visitNumber String // human-readable, e.g. V-20260707-0042
+  visitDate   DateTime    @default(now()) // searchable — relational
+  status      VisitStatus @default(REGISTERED)
+
+  // --- Assistant assessment (flexible medical data → JSONB) ---
+  chiefComplaint String?
+  vitals         Json @default("{}") // {bp_systolic, bp_diastolic, pulse, temp, height, weight, bmi, spo2, respiration, sugar}
+  symptoms       Json @default("[]") // [{name, duration, severity}]
+  assessmentNotes Json @default("{}") // assistant clinical notes, previous-report flags {xrayAvailable, labReportsAvailable, ...}
+
+  // --- Doctor consultation ---
+  clinicalNotes Json @default("{}") // doctor free-form / structured notes
+  soapNotes     Json @default("{}") // AI SOAP notes (future)
+  aiNotes       Json @default("{}") // AI summary / suggestions (future)
+  extra         Json @default("{}") // future medical extensions
+
+  // --- Stage timestamps (drives analytics: waiting time, consult time) ---
+  registeredAt      DateTime  @default(now())
+  assessmentStartAt DateTime?
+  readyForDoctorAt  DateTime?
+  consultStartAt    DateTime?
+  consultEndAt      DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  clinic      Clinic       @relation(fields: [clinicId], references: [id])
+  branch      Branch?      @relation(fields: [branchId], references: [id])
+  patient     Patient      @relation(fields: [patientId], references: [id])
+  doctor      User         @relation("VisitDoctor", fields: [doctorId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+
+  token        Token?
+  diagnoses    Diagnosis[]
+  prescription Prescription?
+  invoice      Invoice?
+  followUp     FollowUp?
+  attachments  Attachment[]
+
+  @@unique([clinicId, visitNumber])
+  @@index([clinicId, visitDate])
+  @@index([clinicId, status])
+  @@index([clinicId, doctorId, visitDate])
+  @@index([clinicId, patientId, visitDate])
+  @@map("visits")
+}
+
+// ============================== QUEUE ================================
+
+model Token {
+  id          String      @id @default(uuid())
+  clinicId    String
+  visitId     String      @unique
+  tokenNumber Int // per clinic per doctor per day
+  tokenDate   DateTime    @db.Date
+  doctorId    String // denormalized for fast queue queries
+  queueType   QueueType   @default(ASSISTANT)
+  status      TokenStatus @default(WAITING)
+  calledAt    DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  clinic Clinic @relation(fields: [clinicId], references: [id])
+  visit  Visit  @relation(fields: [visitId], references: [id])
+
+  @@unique([clinicId, doctorId, tokenDate, tokenNumber])
+  @@index([clinicId, tokenDate, status])
+  @@index([clinicId, doctorId, tokenDate, queueType, status])
+  @@map("tokens")
+}
+
+// =========================== CLINICAL ================================
+
+model Diagnosis {
+  id        String   @id @default(uuid())
+  visitId   String
+  code      String? // ICD-10 ready
+  name      String
+  isPrimary Boolean  @default(false)
+  notes     String?
+  createdAt DateTime @default(now())
+
+  visit Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+
+  @@index([visitId])
+  @@index([code])
+  @@map("diagnoses")
+}
+
+model Medicine {
+  id          String  @id @default(uuid())
+  clinicId    String? // null => global master list shared by all tenants
+  name        String // brand name
+  genericName String?
+  form        String? // tablet, syrup, capsule, injection...
+  strength    String? // 500mg, 5ml...
+  manufacturer String?
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  clinic            Clinic?            @relation(fields: [clinicId], references: [id])
+  prescriptionItems PrescriptionItem[]
+  favorites         FavoriteMedicine[]
+
+  @@index([clinicId, name])
+  @@index([genericName])
+  @@map("medicines")
+}
+
+model FavoriteMedicine {
+  doctorId   String
+  medicineId String
+  defaults   Json     @default("{}") // pre-filled dosage/frequency/duration for one-tap prescribing
+  createdAt  DateTime @default(now())
+
+  doctor   User     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  medicine Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+
+  @@id([doctorId, medicineId])
+  @@map("favorite_medicines")
+}
+
+model MedicineTemplate {
+  id        String   @id @default(uuid())
+  clinicId  String
+  doctorId  String
+  name      String // e.g. "Flu — Adult", "Typhoid 7-day"
+  items     Json // [{medicineId?, medicineName, dosage, frequency, duration, instructions}]
+  useCount  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  clinic Clinic @relation(fields: [clinicId], references: [id])
+  doctor User   @relation(fields: [doctorId], references: [id])
+
+  @@index([clinicId, doctorId])
+  @@map("medicine_templates")
+}
+
+model Prescription {
+  id        String             @id @default(uuid())
+  clinicId  String
+  visitId   String             @unique
+  patientId String
+  doctorId  String
+  status    PrescriptionStatus @default(DRAFT)
+  generalInstructions String?
+  pdfUrl    String?
+  signedAt  DateTime?
+  extra     Json               @default("{}")
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  clinic  Clinic             @relation(fields: [clinicId], references: [id])
+  visit   Visit              @relation(fields: [visitId], references: [id])
+  patient Patient            @relation(fields: [patientId], references: [id])
+  doctor  User               @relation(fields: [doctorId], references: [id])
+  items   PrescriptionItem[]
+
+  @@index([clinicId, doctorId, createdAt])
+  @@index([clinicId, patientId])
+  @@map("prescriptions")
+}
+
+model PrescriptionItem {
+  id             String  @id @default(uuid())
+  prescriptionId String
+  medicineId     String?
+  medicineName   String // snapshot — survives medicine-master edits
+  dosage         String? // "1 tablet", "5ml"
+  frequency      String? // "1-0-1", "morning-night", "SOS"
+  morning        Boolean @default(false)
+  afternoon      Boolean @default(false)
+  night          Boolean @default(false)
+  sos            Boolean @default(false)
+  durationDays   Int?
+  instructions   String? // "after meals"
+  sortOrder      Int     @default(0)
+
+  prescription Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  medicine     Medicine?    @relation(fields: [medicineId], references: [id])
+
+  @@index([prescriptionId])
+  @@index([medicineId])
+  @@map("prescription_items")
+}
+
+// ============================ BILLING ================================
+
+model Invoice {
+  id            String        @id @default(uuid())
+  clinicId      String
+  visitId       String        @unique
+  patientId     String
+  invoiceNumber String // searchable — relational, e.g. INV-20260707-0042
+  status        InvoiceStatus @default(ISSUED)
+  subtotal      Decimal       @default(0) @db.Decimal(10, 2)
+  discount      Decimal       @default(0) @db.Decimal(10, 2)
+  discountReason String?
+  tax           Decimal       @default(0) @db.Decimal(10, 2)
+  total         Decimal       @default(0) @db.Decimal(10, 2)
+  amountPaid    Decimal       @default(0) @db.Decimal(10, 2)
+  notes         String?
+  issuedAt      DateTime      @default(now())
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  clinic   Clinic        @relation(fields: [clinicId], references: [id])
+  visit    Visit         @relation(fields: [visitId], references: [id])
+  patient  Patient       @relation(fields: [patientId], references: [id])
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@unique([clinicId, invoiceNumber])
+  @@index([clinicId, issuedAt])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String  @id @default(uuid())
+  invoiceId   String
+  description String // "Consultation Fee", "Follow-up Fee", ...
+  quantity    Int     @default(1)
+  unitPrice   Decimal @db.Decimal(10, 2)
+  amount      Decimal @db.Decimal(10, 2)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+model Payment {
+  id           String        @id @default(uuid())
+  clinicId     String
+  invoiceId    String
+  method       PaymentMethod
+  status       PaymentStatus @default(COMPLETED)
+  amount       Decimal       @db.Decimal(10, 2) // searchable — relational
+  reference    String? // card/online transaction reference
+  receiptNumber String // RCPT-20260707-0042
+  receivedById String?
+  paidAt       DateTime      @default(now())
+  createdAt    DateTime      @default(now())
+
+  clinic     Clinic  @relation(fields: [clinicId], references: [id])
+  invoice    Invoice @relation(fields: [invoiceId], references: [id])
+  receivedBy User?   @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
+  refunds    Refund[]
+
+  @@unique([clinicId, receiptNumber])
+  @@index([clinicId, paidAt])
+  @@index([invoiceId])
+  @@map("payments")
+}
+
+model Refund {
+  id         String       @id @default(uuid())
+  paymentId  String
+  amount     Decimal      @db.Decimal(10, 2)
+  reason     String
+  status     RefundStatus @default(REQUESTED)
+  approvedById String?
+  processedAt DateTime?
+  createdAt  DateTime     @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+// =========================== FOLLOW-UPS ==============================
+
+model FollowUp {
+  id        String         @id @default(uuid())
+  clinicId  String
+  visitId   String         @unique
+  patientId String
+  doctorId  String
+  dueDate   DateTime
+  reason    String?
+  status    FollowUpStatus @default(SCHEDULED)
+  appointmentId String?    @unique // set once the follow-up is booked
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  clinic      Clinic       @relation(fields: [clinicId], references: [id])
+  visit       Visit        @relation(fields: [visitId], references: [id])
+  patient     Patient      @relation(fields: [patientId], references: [id])
+  doctor      User         @relation("FollowUpDoctor", fields: [doctorId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+
+  @@index([clinicId, dueDate, status])
+  @@index([clinicId, patientId])
+  @@map("follow_ups")
+}
+
+// ========================= NOTIFICATIONS =============================
+
+model Notification {
+  id          String              @id @default(uuid())
+  clinicId    String
+  patientId   String?
+  userId      String?
+  type        String // APPOINTMENT_REMINDER, FOLLOW_UP_REMINDER, PRESCRIPTION_READY, PAYMENT_REMINDER...
+  channel     NotificationChannel
+  status      NotificationStatus  @default(PENDING)
+  title       String
+  body        String
+  payload     Json                @default("{}")
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  error       String?
+  createdAt   DateTime            @default(now())
+
+  clinic  Clinic   @relation(fields: [clinicId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+
+  @@index([clinicId, status, scheduledAt])
+  @@map("notifications")
+}
+
+// ========================== FILE STORAGE =============================
+
+model Attachment {
+  id           String       @id @default(uuid())
+  clinicId     String
+  patientId    String?
+  visitId      String?
+  uploadedById String?
+  category     FileCategory @default(OTHER)
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+  storagePath  String // local path now; S3 key later
+  metadata     Json         @default("{}") // JSONB: capture context, OCR text (future)...
+  createdAt    DateTime     @default(now())
+  deletedAt    DateTime?
+
+  clinic     Clinic   @relation(fields: [clinicId], references: [id])
+  patient    Patient? @relation(fields: [patientId], references: [id])
+  visit      Visit?   @relation(fields: [visitId], references: [id])
+  uploadedBy User?    @relation(fields: [uploadedById], references: [id])
+
+  @@index([clinicId, patientId])
+  @@index([visitId])
+  @@map("attachments")
+}
+
+// ======================= AUDIT & ACTIVITY ============================
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  clinicId  String?
+  userId    String?
+  action    String // CREATE / UPDATE / DELETE / STATUS_CHANGE
+  entity    String // "Patient", "Visit", ...
+  entityId  String?
+  oldValues Json?
+  newValues Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  clinic Clinic? @relation(fields: [clinicId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([clinicId, entity, entityId])
+  @@index([clinicId, createdAt])
+  @@map("audit_logs")
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  clinicId  String?
+  userId    String?
+  action    String // LOGIN, LOGOUT, TOKEN_CALLED, VISIT_COMPLETED...
+  detail    Json     @default("{}")
+  ip        String?
+  createdAt DateTime @default(now())
+
+  clinic Clinic? @relation(fields: [clinicId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([clinicId, createdAt])
+  @@map("activity_logs")
+}
+
+// ==================== SEQUENCES & SETTINGS ===========================
+
+// Atomic per-clinic counters for MRN, visit numbers, daily tokens,
+// invoice & receipt numbers. `scope` examples:
+//   "mrn" | "visit:20260707" | "token:20260707:<doctorId>" | "invoice:20260707"
+model Counter {
+  clinicId String
+  scope    String
+  value    Int    @default(0)
+
+  clinic Clinic @relation(fields: [clinicId], references: [id])
+
+  @@id([clinicId, scope])
+  @@map("counters")
+}
+
+model Setting {
+  clinicId String
+  key      String
+  value    Json
+
+  clinic Clinic @relation(fields: [clinicId], references: [id])
+
+  @@id([clinicId, key])
+  @@map("settings")
+}
