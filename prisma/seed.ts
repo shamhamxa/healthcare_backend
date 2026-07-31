@@ -76,6 +76,7 @@ const ROLE_PERMISSIONS: Record<string, string[] | '*'> = {
   ],
   ASSISTANT: [
     'patients.read',
+    'patients.update', // profile completion (blood group, allergies…) before vitals
     'visits.read',
     'visits.assess',
     'queue.read',

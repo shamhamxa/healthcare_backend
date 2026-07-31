@@ -33,6 +33,7 @@ class CreatePatientDto {
     chronicDiseases;
     familyHistory;
     lifestyleNotes;
+    extra;
     force;
     clinicId;
 }
@@ -129,6 +130,11 @@ __decorate([
     (0, class_validator_1.IsObject)(),
     __metadata("design:type", Object)
 ], CreatePatientDto.prototype, "lifestyleNotes", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsObject)(),
+    __metadata("design:type", Object)
+], CreatePatientDto.prototype, "extra", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsBoolean)(),

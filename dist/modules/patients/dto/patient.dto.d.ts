@@ -19,6 +19,7 @@ export declare class CreatePatientDto {
     chronicDiseases?: unknown[];
     familyHistory?: unknown[];
     lifestyleNotes?: Record<string, unknown>;
+    extra?: Record<string, unknown>;
     force?: boolean;
     clinicId?: string;
 }

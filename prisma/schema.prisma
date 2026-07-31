@@ -347,10 +347,12 @@ model Patient {
   clinicId  String
   mrn       String // Medical Record Number — permanent patient ID, e.g. CLN-000123
   fullName  String
-  // Identity rules: normal registration requires phone + cnic (max 4
-  // patients per CNIC — children register on guardian's CNIC; duplicate
-  // phones are fine). Emergency patients start with neither (isTemporary)
-  // and get their CNIC attached later.
+  // Identity rules: normal registration requires phone YA cnic (koi aik
+  // kaafi hai). Max 4 patients per CNIC aur max 4 per phone — children
+  // register on guardian's CNIC/phone. Phone/CNIC CHANGE = admin only
+  // (first-time add open hai). Emergency patients start with neither
+  // (isTemporary) and get their CNIC attached later. `extra` JSONB:
+  // maritalStatus + relation (SELF/SON/DAUGHTER/FATHER/MOTHER/SPOUSE/OTHER).
   phone     String? // nullable for emergency registrations
   altPhone  String?
   isTemporary Boolean @default(false) // emergency record awaiting CNIC

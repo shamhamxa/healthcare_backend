@@ -93,6 +93,11 @@ export class CreatePatientDto {
   @IsObject()
   lifestyleNotes?: Record<string, unknown>;
 
+  /** Dynamic profile fields — maritalStatus, relation (SELF/SON/…), etc. */
+  @IsOptional()
+  @IsObject()
+  extra?: Record<string, unknown>;
+
   /** Skip duplicate detection and create anyway. */
   @IsOptional()
   @IsBoolean()

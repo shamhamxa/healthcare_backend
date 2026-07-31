@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -28,6 +29,9 @@ export class PatientsService {
   /** Max patients (family members / children) on one guardian CNIC. */
   static readonly MAX_PATIENTS_PER_CNIC = 4;
 
+  /** Max patients sharing one mobile number (family phone). */
+  static readonly MAX_PATIENTS_PER_PHONE = 4;
+
   /**
    * CNIC capacity: one CNIC covers the whole family relationship — up to
    * 4 patients (e.g. children on a guardian's CNIC). Throws when full.
@@ -48,6 +52,30 @@ export class PatientsService {
     if (count >= PatientsService.MAX_PATIENTS_PER_CNIC) {
       throw new BadRequestException(
         `This CNIC already has ${PatientsService.MAX_PATIENTS_PER_CNIC} registered patients (family limit reached)`,
+      );
+    }
+  }
+
+  /**
+   * Phone capacity: families share one mobile number, but at most 4
+   * patients can be registered against the same number.
+   */
+  private async assertPhoneCapacity(
+    clinicId: string,
+    phone: string,
+    excludePatientId?: string,
+  ) {
+    const count = await this.prisma.patient.count({
+      where: {
+        clinicId,
+        phone,
+        deletedAt: null,
+        ...(excludePatientId ? { id: { not: excludePatientId } } : {}),
+      },
+    });
+    if (count >= PatientsService.MAX_PATIENTS_PER_PHONE) {
+      throw new BadRequestException(
+        `This mobile number already has ${PatientsService.MAX_PATIENTS_PER_PHONE} registered patients (family limit reached)`,
       );
     }
   }
@@ -83,22 +111,23 @@ export class PatientsService {
     const clinicId = resolveClinicId(user, dto.clinicId);
     const emergency = dto.emergency === true;
 
-    // Identity rules: normal registration needs name + mobile + CNIC.
-    // Emergency skips everything — token first, identity attached later.
+    // Identity rules: normal registration needs name + (mobile YA CNIC —
+    // koi aik kaafi hai). Emergency skips everything — token first,
+    // identity attached later.
     if (!emergency) {
       if (!dto.fullName?.trim()) {
         throw new BadRequestException('Patient name is required');
       }
-      if (!dto.phone?.trim()) {
-        throw new BadRequestException('Mobile number is required');
-      }
-      if (!dto.cnic?.trim()) {
+      if (!dto.phone?.trim() && !dto.cnic?.trim()) {
         throw new BadRequestException(
-          'CNIC is required (children register on guardian CNIC)',
+          'Mobile number or CNIC is required (at least one)',
         );
       }
     }
 
+    if (dto.phone?.trim()) {
+      await this.assertPhoneCapacity(clinicId, dto.phone);
+    }
     if (dto.cnic) {
       await this.assertCnicCapacity(clinicId, dto.cnic);
       if (!dto.force && dto.fullName) {
@@ -145,6 +174,7 @@ export class PatientsService {
         chronicDiseases: (dto.chronicDiseases ?? []) as Prisma.InputJsonValue,
         familyHistory: (dto.familyHistory ?? []) as Prisma.InputJsonValue,
         lifestyleNotes: (dto.lifestyleNotes ?? {}) as Prisma.InputJsonValue,
+        extra: (dto.extra ?? {}) as Prisma.InputJsonValue,
       },
     });
 
@@ -289,10 +319,28 @@ export class PatientsService {
     const existing = await this.findOne(user, id);
     const { force: _force, clinicId: _clinicId, emergency: _e, ...data } = dto;
 
+    // Identity lock: pehli dafa phone/CNIC ADD karna sab kar sakte hain
+    // (emergency record complete karna), lekin mojooda value CHANGE
+    // sirf admin kar sakta hai.
+    const isAdmin =
+      user.roleCode === 'SUPER_ADMIN' || user.roleCode === 'CLINIC_ADMIN';
+    const phoneChange =
+      dto.phone !== undefined && !!existing.phone && dto.phone !== existing.phone;
+    const cnicChange =
+      dto.cnic !== undefined && !!existing.cnic && dto.cnic !== existing.cnic;
+    if ((phoneChange || cnicChange) && !isAdmin) {
+      throw new ForbiddenException(
+        'Only an admin can change a patient mobile number or CNIC',
+      );
+    }
+
     // Attaching a CNIC (e.g. to an emergency record) respects the
-    // 4-patients-per-CNIC family limit.
+    // 4-patients-per-CNIC family limit; same for the phone limit.
     if (dto.cnic && dto.cnic !== existing.cnic) {
       await this.assertCnicCapacity(existing.clinicId, dto.cnic, id);
+    }
+    if (dto.phone && dto.phone !== existing.phone) {
+      await this.assertPhoneCapacity(existing.clinicId, dto.phone, id);
     }
     // Once a temporary (emergency) record has a CNIC it becomes permanent.
     const nowPermanent =
@@ -310,6 +358,7 @@ export class PatientsService {
           | undefined,
         familyHistory: dto.familyHistory as Prisma.InputJsonValue | undefined,
         lifestyleNotes: dto.lifestyleNotes as Prisma.InputJsonValue | undefined,
+        extra: dto.extra as Prisma.InputJsonValue | undefined,
       },
     });
 

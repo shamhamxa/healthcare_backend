@@ -28,6 +28,7 @@ let PatientsService = class PatientsService {
         this.audit = audit;
     }
     static MAX_PATIENTS_PER_CNIC = 4;
+    static MAX_PATIENTS_PER_PHONE = 4;
     async assertCnicCapacity(clinicId, cnic, excludePatientId) {
         const count = await this.prisma.patient.count({
             where: {
@@ -39,6 +40,19 @@ let PatientsService = class PatientsService {
         });
         if (count >= PatientsService_1.MAX_PATIENTS_PER_CNIC) {
             throw new common_1.BadRequestException(`This CNIC already has ${PatientsService_1.MAX_PATIENTS_PER_CNIC} registered patients (family limit reached)`);
+        }
+    }
+    async assertPhoneCapacity(clinicId, phone, excludePatientId) {
+        const count = await this.prisma.patient.count({
+            where: {
+                clinicId,
+                phone,
+                deletedAt: null,
+                ...(excludePatientId ? { id: { not: excludePatientId } } : {}),
+            },
+        });
+        if (count >= PatientsService_1.MAX_PATIENTS_PER_PHONE) {
+            throw new common_1.BadRequestException(`This mobile number already has ${PatientsService_1.MAX_PATIENTS_PER_PHONE} registered patients (family limit reached)`);
         }
     }
     async findDuplicates(clinicId, fullName, cnic) {
@@ -70,12 +84,12 @@ let PatientsService = class PatientsService {
             if (!dto.fullName?.trim()) {
                 throw new common_1.BadRequestException('Patient name is required');
             }
-            if (!dto.phone?.trim()) {
-                throw new common_1.BadRequestException('Mobile number is required');
+            if (!dto.phone?.trim() && !dto.cnic?.trim()) {
+                throw new common_1.BadRequestException('Mobile number or CNIC is required (at least one)');
             }
-            if (!dto.cnic?.trim()) {
-                throw new common_1.BadRequestException('CNIC is required (children register on guardian CNIC)');
-            }
+        }
+        if (dto.phone?.trim()) {
+            await this.assertPhoneCapacity(clinicId, dto.phone);
         }
         if (dto.cnic) {
             await this.assertCnicCapacity(clinicId, dto.cnic);
@@ -116,6 +130,7 @@ let PatientsService = class PatientsService {
                 chronicDiseases: (dto.chronicDiseases ?? []),
                 familyHistory: (dto.familyHistory ?? []),
                 lifestyleNotes: (dto.lifestyleNotes ?? {}),
+                extra: (dto.extra ?? {}),
             },
         });
         this.audit.log(user, clinicId, {
@@ -243,8 +258,17 @@ let PatientsService = class PatientsService {
     async update(user, id, dto) {
         const existing = await this.findOne(user, id);
         const { force: _force, clinicId: _clinicId, emergency: _e, ...data } = dto;
+        const isAdmin = user.roleCode === 'SUPER_ADMIN' || user.roleCode === 'CLINIC_ADMIN';
+        const phoneChange = dto.phone !== undefined && !!existing.phone && dto.phone !== existing.phone;
+        const cnicChange = dto.cnic !== undefined && !!existing.cnic && dto.cnic !== existing.cnic;
+        if ((phoneChange || cnicChange) && !isAdmin) {
+            throw new common_1.ForbiddenException('Only an admin can change a patient mobile number or CNIC');
+        }
         if (dto.cnic && dto.cnic !== existing.cnic) {
             await this.assertCnicCapacity(existing.clinicId, dto.cnic, id);
+        }
+        if (dto.phone && dto.phone !== existing.phone) {
+            await this.assertPhoneCapacity(existing.clinicId, dto.phone, id);
         }
         const nowPermanent = existing.isTemporary && !!(dto.cnic ?? existing.cnic);
         const patient = await this.prisma.patient.update({
@@ -257,6 +281,7 @@ let PatientsService = class PatientsService {
                 chronicDiseases: dto.chronicDiseases,
                 familyHistory: dto.familyHistory,
                 lifestyleNotes: dto.lifestyleNotes,
+                extra: dto.extra,
             },
         });
         this.audit.log(user, existing.clinicId, {

@@ -10,7 +10,9 @@ export declare class PatientsService {
     private readonly audit;
     constructor(prisma: PrismaService, numbering: NumberingService, audit: AuditService);
     static readonly MAX_PATIENTS_PER_CNIC = 4;
+    static readonly MAX_PATIENTS_PER_PHONE = 4;
     private assertCnicCapacity;
+    private assertPhoneCapacity;
     findDuplicates(clinicId: string, fullName: string, cnic?: string): Promise<{
         mrn: string;
         id: string;
