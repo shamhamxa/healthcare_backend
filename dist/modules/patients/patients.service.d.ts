@@ -91,6 +91,7 @@ export declare class PatientsService {
             totalPages: number;
         };
     }>;
+    cities(user: AuthenticatedUser): Promise<string[]>;
     findOne(user: AuthenticatedUser, id: string): Promise<{
         _count: {
             appointments: number;

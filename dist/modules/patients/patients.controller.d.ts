@@ -70,6 +70,7 @@ export declare class PatientsController {
             totalPages: number;
         };
     }>;
+    cities(user: AuthenticatedUser): Promise<string[]>;
     findOne(user: AuthenticatedUser, id: string): Promise<{
         _count: {
             appointments: number;

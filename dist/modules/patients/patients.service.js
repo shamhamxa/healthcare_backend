@@ -240,6 +240,19 @@ let PatientsService = class PatientsService {
         });
         return (0, pagination_dto_1.paginated)(shaped, total, dto);
     }
+    async cities(user) {
+        const clinicId = (0, tenant_util_1.resolveClinicId)(user);
+        const rows = await this.prisma.patient.groupBy({
+            by: ['city'],
+            where: { clinicId, deletedAt: null, city: { not: null } },
+            _count: { city: true },
+            orderBy: { _count: { city: 'desc' } },
+            take: 50,
+        });
+        return rows
+            .map((r) => r.city)
+            .filter((c) => !!c && c.trim().length > 0);
+    }
     async findOne(user, id) {
         const patient = await this.prisma.patient.findFirst({
             where: {

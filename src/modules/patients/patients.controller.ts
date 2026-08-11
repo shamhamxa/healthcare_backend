@@ -35,6 +35,13 @@ export class PatientsController {
     return this.patientsService.search(user, dto);
   }
 
+  /** Clinic me pehle use hui cities — autocomplete suggestions ke liye. */
+  @Get('cities')
+  @RequirePermissions('patients.read')
+  cities(@CurrentUser() user: AuthenticatedUser) {
+    return this.patientsService.cities(user);
+  }
+
   @Get(':id')
   @RequirePermissions('patients.read')
   findOne(

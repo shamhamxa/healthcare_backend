@@ -29,6 +29,9 @@ let PatientsController = class PatientsController {
     search(user, dto) {
         return this.patientsService.search(user, dto);
     }
+    cities(user) {
+        return this.patientsService.cities(user);
+    }
     findOne(user, id) {
         return this.patientsService.findOne(user, id);
     }
@@ -61,6 +64,14 @@ __decorate([
     __metadata("design:paramtypes", [Object, patient_dto_1.SearchPatientsDto]),
     __metadata("design:returntype", void 0)
 ], PatientsController.prototype, "search", null);
+__decorate([
+    (0, common_1.Get)('cities'),
+    (0, permissions_decorator_1.RequirePermissions)('patients.read'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], PatientsController.prototype, "cities", null);
 __decorate([
     (0, common_1.Get)(':id'),
     (0, permissions_decorator_1.RequirePermissions)('patients.read'),

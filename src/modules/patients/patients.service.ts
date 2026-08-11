@@ -304,6 +304,25 @@ export class PatientsService {
     return paginated(shaped, total, dto);
   }
 
+  /**
+   * Clinic me ab tak use hui cities (zyada-istemal pehle) — frontend
+   * inhe mash-hoor cities ki static list ke saath mila kar autocomplete
+   * dikhata hai. Nayi city save hote hi agli dafa khud suggest hogi.
+   */
+  async cities(user: AuthenticatedUser) {
+    const clinicId = resolveClinicId(user);
+    const rows = await this.prisma.patient.groupBy({
+      by: ['city'],
+      where: { clinicId, deletedAt: null, city: { not: null } },
+      _count: { city: true },
+      orderBy: { _count: { city: 'desc' } },
+      take: 50,
+    });
+    return rows
+      .map((r) => r.city)
+      .filter((c): c is string => !!c && c.trim().length > 0);
+  }
+
   async findOne(user: AuthenticatedUser, id: string) {
     const patient = await this.prisma.patient.findFirst({
       where: {
