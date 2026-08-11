@@ -311,18 +311,30 @@ export class VisitsService {
     }));
   }
 
-  /** Assistant workspace: vitals, chief complaint, symptoms, notes. */
+  /**
+   * Assistant workspace: vitals, chief complaint, symptoms, notes.
+   * Doctor bhi consultation ke dauran history edit/add kar sakta hai —
+   * us waqt visit ka status jahan hai wahin rehta hai (koi transition
+   * nahi, token ko haath nahi lagta).
+   */
   async saveAssessment(user: AuthenticatedUser, id: string, dto: AssessmentDto) {
     const visit = await this.getOwned(user, id);
-    if (!['REGISTERED', 'WAITING', 'IN_ASSESSMENT'].includes(visit.status)) {
+    const doctorPhase = ['READY_FOR_DOCTOR', 'IN_CONSULTATION', 'AWAITING_TEST']
+      .includes(visit.status);
+    if (
+      !doctorPhase &&
+      !['REGISTERED', 'WAITING', 'IN_ASSESSMENT'].includes(visit.status)
+    ) {
       throw new BadRequestException(
         `Cannot record assessment while visit is ${visit.status}`,
       );
     }
 
-    const targetStatus: VisitStatus = dto.readyForDoctor
-      ? 'READY_FOR_DOCTOR'
-      : 'IN_ASSESSMENT';
+    const targetStatus: VisitStatus = doctorPhase
+      ? visit.status
+      : dto.readyForDoctor
+        ? 'READY_FOR_DOCTOR'
+        : 'IN_ASSESSMENT';
     if (visit.status !== targetStatus) {
       this.assertTransition(visit.status, targetStatus);
     }
@@ -338,11 +350,13 @@ export class VisitsService {
           assessmentNotes: (dto.assessmentNotes ??
             visit.assessmentNotes) as Prisma.InputJsonValue,
           assessmentStartAt: visit.assessmentStartAt ?? new Date(),
-          readyForDoctorAt: dto.readyForDoctor ? new Date() : undefined,
+          readyForDoctorAt:
+            !doctorPhase && dto.readyForDoctor ? new Date() : undefined,
         },
         include: { token: true },
       });
-      if (dto.readyForDoctor && visit.token) {
+      // Token sirf assistant-phase mein doctor queue par move hota hai
+      if (!doctorPhase && dto.readyForDoctor && visit.token) {
         await tx.token.update({
           where: { id: visit.token.id },
           data: { queueType: 'DOCTOR', status: 'WAITING' },

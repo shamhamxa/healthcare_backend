@@ -10,6 +10,11 @@ export declare class CreateAppointmentDto {
     notes?: string;
     clinicId?: string;
 }
+export declare class SlotsQueryDto {
+    doctorId: string;
+    date: string;
+    clinicId?: string;
+}
 export declare class RescheduleAppointmentDto {
     scheduledAt: string;
     reason?: string;

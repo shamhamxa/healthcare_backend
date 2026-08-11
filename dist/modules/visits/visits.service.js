@@ -278,12 +278,17 @@ let VisitsService = class VisitsService {
     }
     async saveAssessment(user, id, dto) {
         const visit = await this.getOwned(user, id);
-        if (!['REGISTERED', 'WAITING', 'IN_ASSESSMENT'].includes(visit.status)) {
+        const doctorPhase = ['READY_FOR_DOCTOR', 'IN_CONSULTATION', 'AWAITING_TEST']
+            .includes(visit.status);
+        if (!doctorPhase &&
+            !['REGISTERED', 'WAITING', 'IN_ASSESSMENT'].includes(visit.status)) {
             throw new common_1.BadRequestException(`Cannot record assessment while visit is ${visit.status}`);
         }
-        const targetStatus = dto.readyForDoctor
-            ? 'READY_FOR_DOCTOR'
-            : 'IN_ASSESSMENT';
+        const targetStatus = doctorPhase
+            ? visit.status
+            : dto.readyForDoctor
+                ? 'READY_FOR_DOCTOR'
+                : 'IN_ASSESSMENT';
         if (visit.status !== targetStatus) {
             this.assertTransition(visit.status, targetStatus);
         }
@@ -298,11 +303,11 @@ let VisitsService = class VisitsService {
                     assessmentNotes: (dto.assessmentNotes ??
                         visit.assessmentNotes),
                     assessmentStartAt: visit.assessmentStartAt ?? new Date(),
-                    readyForDoctorAt: dto.readyForDoctor ? new Date() : undefined,
+                    readyForDoctorAt: !doctorPhase && dto.readyForDoctor ? new Date() : undefined,
                 },
                 include: { token: true },
             });
-            if (dto.readyForDoctor && visit.token) {
+            if (!doctorPhase && dto.readyForDoctor && visit.token) {
                 await tx.token.update({
                     where: { id: visit.token.id },
                     data: { queueType: 'DOCTOR', status: 'WAITING' },

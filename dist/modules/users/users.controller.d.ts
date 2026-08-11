@@ -9,6 +9,7 @@ declare class DoctorProfileDto {
     consultationFee?: number;
     followUpFee?: number;
     avgConsultMinutes?: number;
+    preferences?: Record<string, unknown>;
 }
 declare class CreateUserDto {
     fullName: string;

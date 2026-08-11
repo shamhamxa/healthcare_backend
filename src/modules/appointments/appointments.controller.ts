@@ -13,6 +13,7 @@ import {
   CreateAppointmentDto,
   ListAppointmentsDto,
   RescheduleAppointmentDto,
+  SlotsQueryDto,
 } from './dto/appointment.dto';
 import { CheckInPaymentDto } from '../visits/dto/visit.dto';
 import { IsOptional, ValidateNested } from 'class-validator';
@@ -42,6 +43,13 @@ export class AppointmentsController {
   @RequirePermissions('appointments.read')
   list(@CurrentUser() user: AuthenticatedUser, @Query() dto: ListAppointmentsDto) {
     return this.appointmentsService.list(user, dto);
+  }
+
+  /** Doctor ke din bhar ke slots — available/booked/past. */
+  @Get('slots')
+  @RequirePermissions('appointments.read')
+  slots(@CurrentUser() user: AuthenticatedUser, @Query() dto: SlotsQueryDto) {
+    return this.appointmentsService.slots(user, dto);
   }
 
   @Get(':id')

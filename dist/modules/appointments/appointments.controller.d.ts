@@ -1,5 +1,5 @@
 import { AppointmentsService } from './appointments.service';
-import { CancelAppointmentDto, CreateAppointmentDto, ListAppointmentsDto, RescheduleAppointmentDto } from './dto/appointment.dto';
+import { CancelAppointmentDto, CreateAppointmentDto, ListAppointmentsDto, RescheduleAppointmentDto, SlotsQueryDto } from './dto/appointment.dto';
 import { CheckInPaymentDto } from '../visits/dto/visit.dto';
 declare class CheckInBodyDto {
     payment?: CheckInPaymentDto;
@@ -78,6 +78,18 @@ export declare class AppointmentsController {
             limit: number;
             totalPages: number;
         };
+    }>;
+    slots(user: AuthenticatedUser, dto: SlotsQueryDto): Promise<{
+        slotMinutes: number;
+        start: string;
+        end: string;
+        slots: {
+            time: string;
+            iso: string;
+            booked: boolean;
+            past: boolean;
+            available: boolean;
+        }[];
     }>;
     findOne(user: AuthenticatedUser, id: string): Promise<{
         patient: {

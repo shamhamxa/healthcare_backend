@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEmail,
   IsNotEmpty,
   IsObject,
@@ -113,9 +114,78 @@ class UpdateClinicDto {
   settings?: Record<string, unknown>;
 }
 
+class CreateBranchDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  clinicId?: string;
+}
+
+class UpdateBranchDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
 @Controller('clinics')
 export class ClinicsController {
   constructor(private readonly clinicsService: ClinicsService) {}
+
+  /** Branches — clinic admin apni clinic ki, super admin ?clinicId= se. */
+  @Get('branches')
+  @RequirePermissions('settings.manage')
+  branches(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('clinicId') clinicId?: string,
+  ) {
+    return this.clinicsService.branches(user, clinicId);
+  }
+
+  @Post('branches')
+  @RequirePermissions('settings.manage')
+  createBranch(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateBranchDto,
+  ) {
+    return this.clinicsService.createBranch(user, dto);
+  }
+
+  @Patch('branches/:branchId')
+  @RequirePermissions('settings.manage')
+  updateBranch(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Body() dto: UpdateBranchDto,
+  ) {
+    return this.clinicsService.updateBranch(user, branchId, dto);
+  }
 
   @Post()
   @RequirePermissions('clinics.manage')

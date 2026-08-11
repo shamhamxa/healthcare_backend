@@ -33,7 +33,9 @@ const ROLE_PERMISSIONS: Record<string, string[] | '*'> = {
     'patients.read',
     'patients.update',
     'appointments.read',
+    'appointments.create', // follow-up slot booking from consultation
     'visits.read',
+    'visits.assess', // history edit/add during consultation
     'visits.consult',
     'visits.complete',
     'queue.read',

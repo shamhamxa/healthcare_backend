@@ -72,7 +72,8 @@ ON CONFLICT DO NOTHING;
 -- DOCTOR
 INSERT INTO role_permissions ("roleId", "permissionId")
 SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code IN (
-  'patients.read','patients.update','appointments.read','visits.read','visits.consult',
+  'patients.read','patients.update','appointments.read','appointments.create',
+  'visits.read','visits.assess','visits.consult',
   'visits.complete','queue.read','queue.manage','medicines.read','medicines.manage',
   'prescriptions.read','prescriptions.write','prescriptions.sign','followups.read',
   'followups.manage','files.read','files.upload','analytics.read')

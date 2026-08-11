@@ -88,6 +88,8 @@ let UsersService = class UsersService {
                                 consultationFee: dto.doctorProfile?.consultationFee ?? 0,
                                 followUpFee: dto.doctorProfile?.followUpFee ?? 0,
                                 avgConsultMinutes: dto.doctorProfile?.avgConsultMinutes ?? 10,
+                                preferences: (dto.doctorProfile?.preferences ??
+                                    {}),
                             },
                         },
                     }
@@ -202,8 +204,15 @@ let UsersService = class UsersService {
                     ? {
                         doctorProfile: {
                             upsert: {
-                                create: dto.doctorProfile,
-                                update: dto.doctorProfile,
+                                create: {
+                                    ...dto.doctorProfile,
+                                    preferences: (dto.doctorProfile.preferences ??
+                                        {}),
+                                },
+                                update: {
+                                    ...dto.doctorProfile,
+                                    preferences: dto.doctorProfile.preferences,
+                                },
                             },
                         },
                     }

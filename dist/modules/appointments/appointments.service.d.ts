@@ -5,7 +5,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { VisitsService } from '../visits/visits.service';
 import { CheckInPaymentDto } from '../visits/dto/visit.dto';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
-import { CancelAppointmentDto, CreateAppointmentDto, ListAppointmentsDto, RescheduleAppointmentDto } from './dto/appointment.dto';
+import { CancelAppointmentDto, CreateAppointmentDto, ListAppointmentsDto, RescheduleAppointmentDto, SlotsQueryDto } from './dto/appointment.dto';
 export declare class AppointmentsService {
     private readonly prisma;
     private readonly audit;
@@ -14,6 +14,18 @@ export declare class AppointmentsService {
     constructor(prisma: PrismaService, audit: AuditService, notifications: NotificationsService, visits: VisitsService);
     private getOwned;
     private scheduleReminder;
+    slots(user: AuthenticatedUser, dto: SlotsQueryDto): Promise<{
+        slotMinutes: number;
+        start: string;
+        end: string;
+        slots: {
+            time: string;
+            iso: string;
+            booked: boolean;
+            past: boolean;
+            available: boolean;
+        }[];
+    }>;
     create(user: AuthenticatedUser, dto: CreateAppointmentDto): Promise<{
         patient: {
             mrn: string;

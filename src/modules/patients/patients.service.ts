@@ -81,30 +81,68 @@ export class PatientsService {
   }
 
   /**
-   * Duplicate detection: same CNIC + same name is probably the same
-   * person. Duplicate phone numbers are ALLOWED (families share one
-   * mobile number) so phone alone never blocks registration.
+   * Duplicate detection: same CNIC ya same phone par pehle se registered
+   * patients — reception ko "already added" warning ke liye. Families ek
+   * number/CNIC share karti hain is liye ye sirf warning hai (force se
+   * override), block nahi.
    */
-  async findDuplicates(clinicId: string, fullName: string, cnic?: string) {
-    if (!cnic) return [];
+  async findDuplicates(clinicId: string, cnic?: string, phone?: string) {
+    const or: Prisma.PatientWhereInput[] = [];
+    if (cnic?.trim()) or.push({ cnic: cnic.trim() });
+    if (phone?.trim()) or.push({ phone: phone.trim() });
+    if (or.length === 0) return [];
     return this.prisma.patient.findMany({
-      where: {
-        clinicId,
-        deletedAt: null,
-        cnic,
-        fullName: { equals: fullName, mode: 'insensitive' },
-      },
+      where: { clinicId, deletedAt: null, OR: or },
       select: {
         id: true,
         mrn: true,
         fullName: true,
         phone: true,
+        cnic: true,
         gender: true,
         dateOfBirth: true,
         city: true,
+        extra: true,
       },
       take: 5,
     });
+  }
+
+  /**
+   * Aik phone/CNIC par sirf AIK "myself" (SELF) patient ho sakta hai.
+   * Wohi banda dobara aaye to naya record nahi — check-in/token. Force
+   * se bhi bypass NAHI hota. Family members relation ke saath aa sakte
+   * hain.
+   */
+  private async assertSelfUnique(
+    clinicId: string,
+    phone?: string,
+    cnic?: string,
+  ) {
+    const or: Prisma.PatientWhereInput[] = [];
+    if (phone?.trim()) or.push({ phone: phone.trim() });
+    if (cnic?.trim()) or.push({ cnic: cnic.trim() });
+    if (or.length === 0) return;
+    const existing = await this.prisma.patient.findFirst({
+      where: {
+        clinicId,
+        deletedAt: null,
+        OR: or,
+        extra: { path: ['relation'], equals: 'SELF' },
+      },
+      select: { id: true, mrn: true, fullName: true, phone: true, cnic: true },
+    });
+    if (existing) {
+      throw new ConflictException({
+        message:
+          `${existing.fullName} (${existing.mrn}) is already registered as ` +
+          `"myself" on this phone/CNIC. Search the patient and use check-in ` +
+          `for a token, or select a relation (son/daughter…) to register a ` +
+          `family member.`,
+        selfExists: true,
+        existing,
+      });
+    }
   }
 
   async create(user: AuthenticatedUser, dto: CreatePatientDto) {
@@ -130,11 +168,22 @@ export class PatientsService {
     }
     if (dto.cnic) {
       await this.assertCnicCapacity(clinicId, dto.cnic);
-      if (!dto.force && dto.fullName) {
+    }
+
+    if (!emergency) {
+      // "Myself" dobara register nahi ho sakta — hard block (force bhi nahi).
+      const relation =
+        `${(dto.extra?.['relation'] as string | undefined) ?? 'SELF'}`
+          .toUpperCase();
+      if (relation === 'SELF') {
+        await this.assertSelfUnique(clinicId, dto.phone, dto.cnic);
+      }
+      // Same phone/CNIC ka koi bhi record → warning (force = create anyway).
+      if (!dto.force) {
         const duplicates = await this.findDuplicates(
           clinicId,
-          dto.fullName,
           dto.cnic,
+          dto.phone,
         );
         if (duplicates.length > 0) {
           throw new ConflictException({

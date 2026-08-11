@@ -143,6 +143,66 @@ let ClinicsService = class ClinicsService {
         });
         return clinic;
     }
+    async branches(user, clinicId) {
+        const cid = user.clinicId ?? clinicId;
+        if (!cid)
+            throw new common_1.ForbiddenException('clinicId required for super admin');
+        return this.prisma.branch.findMany({
+            where: { clinicId: cid },
+            orderBy: { createdAt: 'asc' },
+        });
+    }
+    async createBranch(user, dto) {
+        if (user.roleCode !== 'SUPER_ADMIN') {
+            throw new common_1.ForbiddenException('Only super admin can create branches');
+        }
+        const cid = dto.clinicId ?? user.clinicId;
+        if (!cid)
+            throw new common_1.ForbiddenException('clinicId is required');
+        const count = await this.prisma.branch.count({ where: { clinicId: cid } });
+        const branch = await this.prisma.branch.create({
+            data: {
+                clinicId: cid,
+                name: dto.name.trim(),
+                code: dto.code?.trim() || `B${count + 1}`,
+                address: dto.address,
+                phone: dto.phone,
+            },
+        });
+        this.audit.log(user, cid, {
+            action: 'CREATE',
+            entity: 'Branch',
+            entityId: branch.id,
+            newValues: { name: branch.name, code: branch.code },
+        });
+        return branch;
+    }
+    async updateBranch(user, id, dto) {
+        if (user.roleCode !== 'SUPER_ADMIN') {
+            throw new common_1.ForbiddenException('Only super admin can update branches');
+        }
+        const branch = await this.prisma.branch.findFirst({
+            where: { id, ...(user.clinicId ? { clinicId: user.clinicId } : {}) },
+        });
+        if (!branch)
+            throw new common_1.NotFoundException('Branch not found');
+        const updated = await this.prisma.branch.update({
+            where: { id },
+            data: {
+                name: dto.name?.trim() || undefined,
+                address: dto.address,
+                phone: dto.phone,
+                isActive: dto.isActive,
+            },
+        });
+        this.audit.log(user, branch.clinicId, {
+            action: 'UPDATE',
+            entity: 'Branch',
+            entityId: id,
+            newValues: { name: updated.name, isActive: updated.isActive },
+        });
+        return updated;
+    }
     async roles(user) {
         return this.prisma.role.findMany({
             where: {

@@ -18,6 +18,7 @@ export interface CreateUserInput {
         consultationFee?: number;
         followUpFee?: number;
         avgConsultMinutes?: number;
+        preferences?: Record<string, unknown>;
     };
 }
 export declare class UsersService {

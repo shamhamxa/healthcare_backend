@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ListAppointmentsDto = exports.CancelAppointmentDto = exports.RescheduleAppointmentDto = exports.CreateAppointmentDto = void 0;
+exports.ListAppointmentsDto = exports.CancelAppointmentDto = exports.RescheduleAppointmentDto = exports.SlotsQueryDto = exports.CreateAppointmentDto = void 0;
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
 const client_1 = require("@prisma/client");
@@ -64,6 +64,25 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], CreateAppointmentDto.prototype, "clinicId", void 0);
+class SlotsQueryDto {
+    doctorId;
+    date;
+    clinicId;
+}
+exports.SlotsQueryDto = SlotsQueryDto;
+__decorate([
+    (0, class_validator_1.IsUUID)(),
+    __metadata("design:type", String)
+], SlotsQueryDto.prototype, "doctorId", void 0);
+__decorate([
+    (0, class_validator_1.IsDateString)(),
+    __metadata("design:type", String)
+], SlotsQueryDto.prototype, "date", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], SlotsQueryDto.prototype, "clinicId", void 0);
 class RescheduleAppointmentDto {
     scheduledAt;
     reason;

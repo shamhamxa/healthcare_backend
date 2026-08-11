@@ -13,7 +13,7 @@ export declare class PatientsService {
     static readonly MAX_PATIENTS_PER_PHONE = 4;
     private assertCnicCapacity;
     private assertPhoneCapacity;
-    findDuplicates(clinicId: string, fullName: string, cnic?: string): Promise<{
+    findDuplicates(clinicId: string, cnic?: string, phone?: string): Promise<{
         mrn: string;
         id: string;
         fullName: string;
@@ -21,7 +21,10 @@ export declare class PatientsService {
         city: string | null;
         gender: import("@prisma/client").$Enums.Gender;
         dateOfBirth: Date | null;
+        cnic: string | null;
+        extra: Prisma.JsonValue;
     }[]>;
+    private assertSelfUnique;
     create(user: AuthenticatedUser, dto: CreatePatientDto): Promise<{
         mrn: string;
         id: string;

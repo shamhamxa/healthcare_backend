@@ -45,6 +45,19 @@ export class CreateAppointmentDto {
   clinicId?: string;
 }
 
+export class SlotsQueryDto {
+  @IsUUID()
+  doctorId: string;
+
+  /** YYYY-MM-DD */
+  @IsDateString()
+  date: string;
+
+  @IsOptional()
+  @IsString()
+  clinicId?: string;
+}
+
 export class RescheduleAppointmentDto {
   @IsDateString()
   scheduledAt: string;

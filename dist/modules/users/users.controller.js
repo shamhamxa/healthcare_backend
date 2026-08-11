@@ -28,6 +28,7 @@ class DoctorProfileDto {
     consultationFee;
     followUpFee;
     avgConsultMinutes;
+    preferences;
 }
 __decorate([
     (0, class_validator_1.IsOptional)(),
@@ -59,6 +60,11 @@ __decorate([
     (0, class_transformer_1.Type)(() => Number),
     __metadata("design:type", Number)
 ], DoctorProfileDto.prototype, "avgConsultMinutes", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsObject)(),
+    __metadata("design:type", Object)
+], DoctorProfileDto.prototype, "preferences", void 0);
 class CreateUserDto {
     fullName;
     email;

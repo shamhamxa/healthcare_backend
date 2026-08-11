@@ -55,27 +55,57 @@ let PatientsService = class PatientsService {
             throw new common_1.BadRequestException(`This mobile number already has ${PatientsService_1.MAX_PATIENTS_PER_PHONE} registered patients (family limit reached)`);
         }
     }
-    async findDuplicates(clinicId, fullName, cnic) {
-        if (!cnic)
+    async findDuplicates(clinicId, cnic, phone) {
+        const or = [];
+        if (cnic?.trim())
+            or.push({ cnic: cnic.trim() });
+        if (phone?.trim())
+            or.push({ phone: phone.trim() });
+        if (or.length === 0)
             return [];
         return this.prisma.patient.findMany({
-            where: {
-                clinicId,
-                deletedAt: null,
-                cnic,
-                fullName: { equals: fullName, mode: 'insensitive' },
-            },
+            where: { clinicId, deletedAt: null, OR: or },
             select: {
                 id: true,
                 mrn: true,
                 fullName: true,
                 phone: true,
+                cnic: true,
                 gender: true,
                 dateOfBirth: true,
                 city: true,
+                extra: true,
             },
             take: 5,
         });
+    }
+    async assertSelfUnique(clinicId, phone, cnic) {
+        const or = [];
+        if (phone?.trim())
+            or.push({ phone: phone.trim() });
+        if (cnic?.trim())
+            or.push({ cnic: cnic.trim() });
+        if (or.length === 0)
+            return;
+        const existing = await this.prisma.patient.findFirst({
+            where: {
+                clinicId,
+                deletedAt: null,
+                OR: or,
+                extra: { path: ['relation'], equals: 'SELF' },
+            },
+            select: { id: true, mrn: true, fullName: true, phone: true, cnic: true },
+        });
+        if (existing) {
+            throw new common_1.ConflictException({
+                message: `${existing.fullName} (${existing.mrn}) is already registered as ` +
+                    `"myself" on this phone/CNIC. Search the patient and use check-in ` +
+                    `for a token, or select a relation (son/daughter…) to register a ` +
+                    `family member.`,
+                selfExists: true,
+                existing,
+            });
+        }
     }
     async create(user, dto) {
         const clinicId = (0, tenant_util_1.resolveClinicId)(user, dto.clinicId);
@@ -93,8 +123,15 @@ let PatientsService = class PatientsService {
         }
         if (dto.cnic) {
             await this.assertCnicCapacity(clinicId, dto.cnic);
-            if (!dto.force && dto.fullName) {
-                const duplicates = await this.findDuplicates(clinicId, dto.fullName, dto.cnic);
+        }
+        if (!emergency) {
+            const relation = `${dto.extra?.['relation'] ?? 'SELF'}`
+                .toUpperCase();
+            if (relation === 'SELF') {
+                await this.assertSelfUnique(clinicId, dto.phone, dto.cnic);
+            }
+            if (!dto.force) {
+                const duplicates = await this.findDuplicates(clinicId, dto.cnic, dto.phone);
                 if (duplicates.length > 0) {
                     throw new common_1.ConflictException({
                         message: 'Possible duplicate patient(s) found. Pass force=true to create anyway.',

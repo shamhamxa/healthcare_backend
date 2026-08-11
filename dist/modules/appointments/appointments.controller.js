@@ -41,6 +41,9 @@ let AppointmentsController = class AppointmentsController {
     list(user, dto) {
         return this.appointmentsService.list(user, dto);
     }
+    slots(user, dto) {
+        return this.appointmentsService.slots(user, dto);
+    }
     findOne(user, id) {
         return this.appointmentsService.findOne(user, id);
     }
@@ -76,6 +79,15 @@ __decorate([
     __metadata("design:paramtypes", [Object, appointment_dto_1.ListAppointmentsDto]),
     __metadata("design:returntype", void 0)
 ], AppointmentsController.prototype, "list", null);
+__decorate([
+    (0, common_1.Get)('slots'),
+    (0, permissions_decorator_1.RequirePermissions)('appointments.read'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, appointment_dto_1.SlotsQueryDto]),
+    __metadata("design:returntype", void 0)
+], AppointmentsController.prototype, "slots", null);
 __decorate([
     (0, common_1.Get)(':id'),
     (0, permissions_decorator_1.RequirePermissions)('appointments.read'),

@@ -51,6 +51,11 @@ class DoctorProfileDto {
   @IsOptional()
   @Type(() => Number)
   avgConsultMinutes?: number;
+
+  /** UI prefs + slot config: { slots: { minutes, start, end } } */
+  @IsOptional()
+  @IsObject()
+  preferences?: Record<string, unknown>;
 }
 
 class CreateUserDto {

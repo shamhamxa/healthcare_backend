@@ -27,9 +27,55 @@ declare class UpdateClinicDto {
     logoUrl?: string;
     settings?: Record<string, unknown>;
 }
+declare class CreateBranchDto {
+    name: string;
+    code?: string;
+    address?: string;
+    phone?: string;
+    clinicId?: string;
+}
+declare class UpdateBranchDto {
+    name?: string;
+    address?: string;
+    phone?: string;
+    isActive?: boolean;
+}
 export declare class ClinicsController {
     private readonly clinicsService;
     constructor(clinicsService: ClinicsService);
+    branches(user: AuthenticatedUser, clinicId?: string): Promise<{
+        id: string;
+        clinicId: string;
+        phone: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        code: string;
+        address: string | null;
+        isActive: boolean;
+    }[]>;
+    createBranch(user: AuthenticatedUser, dto: CreateBranchDto): Promise<{
+        id: string;
+        clinicId: string;
+        phone: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        code: string;
+        address: string | null;
+        isActive: boolean;
+    }>;
+    updateBranch(user: AuthenticatedUser, branchId: string, dto: UpdateBranchDto): Promise<{
+        id: string;
+        clinicId: string;
+        phone: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        code: string;
+        address: string | null;
+        isActive: boolean;
+    }>;
     create(user: AuthenticatedUser, dto: CreateClinicDto): Promise<{
         users: {
             id: string;

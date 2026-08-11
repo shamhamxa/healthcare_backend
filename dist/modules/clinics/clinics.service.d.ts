@@ -121,6 +121,50 @@ export declare class ClinicsService {
         settings: Prisma.JsonValue;
         isActive: boolean;
     }>;
+    branches(user: AuthenticatedUser, clinicId?: string): Promise<{
+        id: string;
+        clinicId: string;
+        phone: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        code: string;
+        address: string | null;
+        isActive: boolean;
+    }[]>;
+    createBranch(user: AuthenticatedUser, dto: {
+        name: string;
+        code?: string;
+        address?: string;
+        phone?: string;
+        clinicId?: string;
+    }): Promise<{
+        id: string;
+        clinicId: string;
+        phone: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        code: string;
+        address: string | null;
+        isActive: boolean;
+    }>;
+    updateBranch(user: AuthenticatedUser, id: string, dto: {
+        name?: string;
+        address?: string;
+        phone?: string;
+        isActive?: boolean;
+    }): Promise<{
+        id: string;
+        clinicId: string;
+        phone: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        code: string;
+        address: string | null;
+        isActive: boolean;
+    }>;
     roles(user: AuthenticatedUser): Promise<({
         rolePermissions: ({
             permission: {

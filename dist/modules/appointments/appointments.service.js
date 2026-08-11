@@ -59,6 +59,61 @@ let AppointmentsService = class AppointmentsService {
             scheduledAt: remindAt,
         });
     }
+    async slots(user, dto) {
+        const clinicId = (0, tenant_util_1.resolveClinicId)(user, dto.clinicId);
+        const doctor = await this.prisma.user.findFirst({
+            where: { id: dto.doctorId, clinicId, deletedAt: null },
+            include: { doctorProfile: true },
+        });
+        if (!doctor)
+            throw new common_1.NotFoundException('Doctor not found');
+        const prefs = (doctor.doctorProfile?.preferences ?? {});
+        const cfg = (prefs['slots'] ?? {});
+        const slotMinutes = Number(cfg['minutes']) ||
+            doctor.doctorProfile?.avgConsultMinutes ||
+            15;
+        const startStr = `${cfg['start'] ?? '09:00'}`;
+        const endStr = `${cfg['end'] ?? '17:00'}`;
+        const [y, m, d] = dto.date.substring(0, 10).split('-').map(Number);
+        const [sh, sm] = startStr.split(':').map(Number);
+        const [eh, em] = endStr.split(':').map(Number);
+        const workStart = new Date(y, m - 1, d, sh || 9, sm || 0);
+        const workEnd = new Date(y, m - 1, d, eh || 17, em || 0);
+        const dayStart = new Date(y, m - 1, d);
+        const dayEnd = new Date(y, m - 1, d + 1);
+        const appts = await this.prisma.appointment.findMany({
+            where: {
+                clinicId,
+                doctorId: dto.doctorId,
+                deletedAt: null,
+                status: { in: ['BOOKED', 'CONFIRMED', 'CHECKED_IN'] },
+                scheduledAt: { gte: dayStart, lt: dayEnd },
+            },
+            select: { scheduledAt: true, durationMin: true },
+        });
+        const now = new Date();
+        const slots = [];
+        let t = workStart;
+        while (t < workEnd) {
+            const tEnd = new Date(t.getTime() + slotMinutes * 60000);
+            const booked = appts.some((a) => {
+                const aEnd = new Date(a.scheduledAt.getTime() + (a.durationMin || slotMinutes) * 60000);
+                return a.scheduledAt < tEnd && aEnd > t;
+            });
+            const past = t <= now;
+            const hh = `${t.getHours()}`.padStart(2, '0');
+            const mm = `${t.getMinutes()}`.padStart(2, '0');
+            slots.push({
+                time: `${hh}:${mm}`,
+                iso: t.toISOString(),
+                booked,
+                past,
+                available: !booked && !past,
+            });
+            t = tEnd;
+        }
+        return { slotMinutes, start: startStr, end: endStr, slots };
+    }
     async create(user, dto) {
         const clinicId = (0, tenant_util_1.resolveClinicId)(user, dto.clinicId);
         const scheduledAt = new Date(dto.scheduledAt);
